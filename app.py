@@ -1,10 +1,12 @@
-# app.py – Streamlit Real Estate Advisor (INSECURE - Hard-coded API Key, with Detailed Requirements)
+# app.py – Streamlit Real Estate Advisor (INSECURE - Hard-coded API Key, with Multi-Step UI)
 
 """
 Real Estate Advisor: Your Personal AI-Powered Property Guide
 
-This version integrates a comprehensive requirements gathering form before AI generation,
-leading to a highly personalized and detailed strategy.
+This version features a multi-step user interface.
+Step 1: User selects their primary goal.
+Step 2: A dynamic form appears with questions relevant only to that goal.
+Step 3: The AI analysis is unlocked using the gathered information.
 
 Run:
     streamlit run app.py
@@ -39,20 +41,14 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_resource
 def configure_gemini():
-    """
-    Configures the Gemini API with a hard-coded key.
-    WARNING: This is not a secure practice.
-    """
+    """Configures the Gemini API with a hard-coded key."""
     try:
         # --- REMINDER: Replace this key with a new, secret key ---
-        genai.configure(api_key="AIzaSyBb-KXLYLyRO4o2TFAeiOQNv4fG54O0GEU")
-        
+        genai.configure(api_key="YOUR_NEW_SECRET_API_KEY_HERE")
         model = genai.GenerativeModel("gemini-1.5-flash")
-        
         return model
     except Exception as e:
-        st.error("Failed to configure Gemini. Please check that your API key is correct and valid.")
-        st.error(f"Error details: {e}")
+        st.error(f"Failed to configure Gemini. Please check that your API key is correct and valid. Error: {e}")
         st.stop()
 
 MODEL = configure_gemini()
@@ -62,7 +58,7 @@ def ask_gemini(prompt: str, temperature: float = 0.4) -> str:
     try:
         response = MODEL.generate_content(prompt, generation_config={"temperature": temperature})
         if not response.parts:
-            return "Warning: The AI returned an empty response. This may be due to the safety settings of the API. Please try a different query."
+            return "Warning: The AI returned an empty response. This may be due to API safety settings."
         return response.text
     except Exception as err:
         st.error(f"An error occurred while communicating with Gemini: {err}")
@@ -86,24 +82,54 @@ def calculate_age(born: date) -> int:
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Streamlit Interface
+# UI Modules for Rendering Specific Form Sections
 # ─────────────────────────────────────────────────────────────────────────────
-def main():
-    st.set_page_config(page_title="Real Estate Advisor", page_icon="🏠", layout="wide", initial_sidebar_state="expanded")
 
-    # --- Initialize Session State ---
-    if 'profiles' not in st.session_state:
-        st.session_state.profiles = {}
-    if 'selected_profile' not in st.session_state:
-        st.session_state.selected_profile = None
-    if 'details_submitted' not in st.session_state:
-        st.session_state.details_submitted = False
-    if 'property_details' not in st.session_state:
-        st.session_state.property_details = {}
+def render_flat_specifics():
+    st.markdown("##### Flat Details")
+    details = {"plan_flat_size": st.selectbox("Flat Size", ['1BHK', '2BHK', '3BHK', '4BHK+', 'Penthouse', 'Studio', 'Custom'])}
+    return details
 
-    # --- Sidebar for Profile Management ---
+def render_plot_specifics():
+    st.markdown("##### Plot Details")
+    details = {"plan_plot_area": st.number_input("Plot Area (sq. ft)", min_value=300, value=1200, step=100)}
+    return details
+
+def render_build_specifics():
+    st.markdown("##### Construction Details")
+    details = {
+        "plan_built_up": st.number_input("Target Built-up Area (sq. ft)", min_value=200, value=1800, step=100),
+        "plan_floors": st.number_input("Number of Floors Planned", min_value=1, value=2),
+        "extra_floors_rent": st.checkbox("Plan extra floors for rent?"),
+        "const_contract": st.selectbox("Contract Type", ['With Material (Turnkey)', 'Without Material (Labor Only)']),
+        "const_vendors": st.multiselect("Specific Vendors Needed?", ['Plumbing', 'Electrical', 'Tiles', 'Paint', 'Solar', 'Interiors', 'CCTV', 'Automation', 'Landscaping']),
+        "const_green": st.multiselect("Desired Green Features", ['Solar Panels', 'Rainwater Harvesting', 'Heat Insulation', 'EV Charging Point', 'Greywater Recycling']),
+        "const_timeline": st.slider("Estimated Build Timeline (Months)", 3, 36, 12)
+    }
+    return details
+
+def render_investment_specifics(purpose):
+    details = {}
+    if "Rental" in purpose:
+        details["fin_target_rent"] = st.number_input("Target Monthly Rent Income (Rs)", min_value=0, step=1000)
+    if "Resale" in purpose:
+        details["fin_target_resale"] = st.number_input("Target Resale Price (Rs)", min_value=0, step=100000)
+    if details:
+        st.markdown("##### Investment Goals")
+        # This part dynamically creates the widgets outside the main form's "with" block
+        # It's a way to handle conditional inputs based on other inputs within the same form
+        for key, val in details.items():
+            st.session_state[key] = val
+    return details
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main UI Display Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def display_sidebar():
+    """Manages the sidebar for profile creation and loading."""
     with st.sidebar:
-        st.image("https://i.imgur.com/rLdD2b5.png", width=150)
         st.title("Profile Manager")
         st.markdown("Create or load a profile to begin.")
         
@@ -123,183 +149,208 @@ def main():
                         else:
                             st.session_state.profiles[profile_name] = {"name": name, "contact": contact, "dob": dob, "income": income}
                             st.session_state.selected_profile = profile_name
-                            st.session_state.details_submitted = False
+                            st.session_state.step = 1  # Reset to step 1
                             st.success(f"Profile '{profile_name}' created!")
                             st.rerun()
                     else:
                         st.error("Please fill all fields in the profile.")
-        
         st.markdown("---")
-        
         if st.session_state.profiles:
             st.subheader("Load Profile")
             profile_options = list(st.session_state.profiles.keys())
             
             def on_profile_change():
                 st.session_state.selected_profile = st.session_state.profile_select_key
-                st.session_state.details_submitted = False
+                st.session_state.step = 1  # Reset to step 1
                 st.session_state.property_details = {}
 
             try:
                 current_index = profile_options.index(st.session_state.selected_profile)
             except (ValueError, TypeError):
                 current_index = 0
-                if profile_options:
-                    st.session_state.selected_profile = profile_options[0]
+                if profile_options: st.session_state.selected_profile = profile_options[0]
             
             st.selectbox("Select Profile", options=profile_options, index=current_index, key="profile_select_key", on_change=on_profile_change)
 
-    # --- Main App Body ---
+def display_step1_intent_form():
+    """Shows the first step: selecting the primary real estate goal."""
+    st.subheader("STEP 1: What is your primary goal?")
+    with st.form("step1_form"):
+        intent_type = st.selectbox("Select your goal", ['Buy a Flat', 'Build a House', 'Buy a Plot', 'Mixed / Rent Invest'])
+        submitted = st.form_submit_button("Next: Add Details")
+        if submitted:
+            st.session_state.intent_type = intent_type
+            st.session_state.step = 2
+            st.rerun()
+
+def display_step2_details_form():
+    """Shows the second step: a dynamic form for detailed requirements."""
+    intent_type = st.session_state.intent_type
+    st.subheader(f"STEP 2: Details for '{intent_type}'")
+    
+    with st.form("step2_form"):
+        details = {"intent_type": intent_type}
+        
+        st.markdown("#### Location & Budget")
+        c1, c2 = st.columns(2)
+        with c1:
+            details["loc_city"] = st.text_input("Target City", value="Nagpur")
+            details["loc_locality"] = st.text_input("Preferred Localities (comma-separated)")
+            details["loc_pincode"] = st.text_input("Pin Code", max_chars=6)
+        with c2:
+            details["fin_budget"] = st.number_input("Total Budget (Rs)", min_value=100000, step=100000, value=5000000)
+            details["fin_loan"] = st.checkbox("Will you need a loan?", value=True)
+            details["fin_subsidy"] = st.checkbox("Interested in subsidy schemes (e.g., PMAY)?")
+
+        st.markdown("---")
+        
+        details["intent_purpose"] = st.selectbox("What is the main purpose?", ['Self Use', 'Rental Income', 'Resale / Investment'])
+        
+        mixed_components = []
+        if intent_type == 'Mixed / Rent Invest':
+            st.markdown("#### Mixed Investment Components")
+            mixed_components = st.multiselect("Select the components for your mixed strategy:", ['Buy a Flat', 'Build a House', 'Buy a Plot'])
+            details["mixed_components"] = mixed_components
+
+        if intent_type == 'Buy a Flat' or 'Buy a Flat' in mixed_components:
+            details.update(render_flat_specifics())
+        if intent_type in ['Build a House', 'Buy a Plot'] or any(c in mixed_components for c in ['Build a House', 'Buy a Plot']):
+            details.update(render_plot_specifics())
+        if intent_type == 'Build a House' or 'Build a House' in mixed_components:
+            details.update(render_build_specifics())
+            
+        st.markdown("---")
+        
+        st.markdown("#### Preferences & Concerns")
+        c3, c4 = st.columns(2)
+        with c3:
+            details["qual_connectivity"] = st.select_slider("Connectivity Importance", ['Low', 'Medium', 'High'], value='Medium')
+            details["qual_amenities"] = st.select_slider("Proximity to Schools/Hospitals", ['Not Important', 'Somewhat', 'Very Important'], value='Somewhat')
+        with c4:
+            details["risk_pollution"] = st.select_slider("Pollution Concern Level", ['Low', 'Medium', 'High'])
+            details["risk_crime"] = st.select_slider("Crime Concern Level", ['Low', 'Medium', 'High'])
+        
+        details.update(render_investment_specifics(details["intent_purpose"]))
+
+        submitted = st.form_submit_button("Save Details & Proceed to Analysis", use_container_width=True)
+        if submitted:
+            st.session_state.property_details = details
+            st.session_state.step = 3
+            st.rerun()
+
+def display_step3_analysis_section(user_profile, prop_details):
+    """Shows the final step: saved details and the AI generation button."""
+    st.subheader("STEP 3: Review and Generate AI Strategy")
+    
+    st.success("Your requirements have been saved. Review the details below and generate your plan.")
+    
+    with st.expander("Your Saved Requirements", expanded=True):
+        st.write(prop_details)
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("Generate My Real Estate Strategy", type="primary", use_container_width=True):
+            prompt = build_ai_prompt(user_profile, prop_details)
+            with st.spinner("Analyzing your detailed requirements and crafting a custom strategy..."):
+                response = ask_gemini(prompt)
+            st.session_state.ai_response = response
+            st.rerun()
+    with col2:
+        if st.button("Edit Details", use_container_width=True):
+            st.session_state.step = 2
+            st.rerun()
+
+    if 'ai_response' in st.session_state and st.session_state.ai_response:
+        st.markdown("---")
+        st.markdown(st.session_state.ai_response)
+
+
+def build_ai_prompt(user_profile, prop_details):
+    """Constructs the detailed prompt for the Gemini API."""
+    prompt = f"""
+        Act as a friendly, expert real estate advisor in India for a client named {user_profile['name']}.
+
+        **CLIENT'S BASE PROFILE:**
+        - Age: {calculate_age(user_profile['dob'])} years
+        - Annual Income: Rs {user_profile['income']:,}
+
+        **CLIENT'S DETAILED REQUIREMENTS:**
+        - Primary Goal: {prop_details.get('intent_type', 'N/A')}
+        - Main Purpose: {prop_details.get('intent_purpose', 'N/A')}
+        - Target City: {prop_details.get('loc_city', 'N/A')}
+        - Budget: Rs {prop_details.get('fin_budget', 0):,}
+        - Needs Loan: {'Yes' if prop_details.get('fin_loan') else 'No'}
+        - Interest in Subsidy: {'Yes' if prop_details.get('fin_subsidy') else 'No'}
+
+        **PROPERTY SPECIFICS (only consider relevant fields):**
+        - For Mixed Strategy: {', '.join(prop_details.get('mixed_components', [])) or 'N/A'}
+        - Flat Size: {prop_details.get('plan_flat_size', 'N/A')}
+        - Plot Area: {prop_details.get('plan_plot_area', 'N/A')} sq. ft
+        - Built-up Area: {prop_details.get('plan_built_up', 'N/A')} sq. ft
+        - Floors to Build: {prop_details.get('plan_floors', 'N/A')}
+        - Extra floors for rent: {'Yes' if prop_details.get('extra_floors_rent') else 'No'}
+        
+        **CONSTRUCTION DETAILS (if building):**
+        - Contract Type: {prop_details.get('const_contract', 'N/A')}
+        - Build Timeline: {prop_details.get('const_timeline', 'N/A')} months
+        - Vendors Needed: {', '.join(prop_details.get('const_vendors', [])) or 'N/A'}
+        - Green Features: {', '.join(prop_details.get('const_green', [])) or 'N/A'}
+
+        **INVESTMENT GOALS (if applicable):**
+        - Target Rental Income: Rs {prop_details.get('fin_target_rent', 0):,}
+        - Target Resale Price: Rs {prop_details.get('fin_target_resale', 0):,}
+
+        **PREFERENCES & CONCERNS:**
+        - Connectivity Importance: {prop_details.get('qual_connectivity', 'N/A')}
+        - Proximity to Amenities: {prop_details.get('qual_amenities', 'N/A')}
+        - Concerns: Pollution Level ({prop_details.get('risk_pollution', 'N/A')}), Crime Level ({prop_details.get('risk_crime', 'N/A')})
+
+        **MARKET DATA CONTEXT for {prop_details.get('loc_city', 'your city')}:**
+        {get_price_data(prop_details.get('loc_city', '')).to_markdown()}
+        ---
+        **YOUR TASK:** Generate a comprehensive and highly personalized report in Markdown. Address ONLY the fields provided.
+        1. ### Executive Summary: Give a direct recommendation based on their goal. Justify it against their budget, purpose, and market data.
+        2. ### Strategy Deep Dive: Elaborate on the recommendation. Address their specific requirements and risk concerns. If it's a 'Mixed' strategy, analyze each component.
+        3. ### Financial Analysis: Provide a realistic cost breakdown vs. their budget. Estimate loan eligibility and a potential EMI. Mention the feasibility of their investment goals (rent/resale).
+        4. ### Action Plan: Create a checklist of the immediate next 5 steps for {user_profile['name']}, directly tied to their specific plan.
+    """
+    return textwrap.dedent(prompt)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main App Controller
+# ─────────────────────────────────────────────────────────────────────────────
+def main():
+    st.set_page_config(page_title="Real Estate Advisor", page_icon="🏠", layout="wide")
+
+    # Initialize session state keys
+    if 'step' not in st.session_state:
+        st.session_state.step = 1
+    if 'profiles' not in st.session_state:
+        st.session_state.profiles = {}
+    if 'selected_profile' not in st.session_state:
+        st.session_state.selected_profile = None
+    if 'property_details' not in st.session_state:
+        st.session_state.property_details = {}
+
+    display_sidebar()
     st.title("AI Real Estate Advisor")
 
     if not st.session_state.selected_profile:
         st.info("Welcome! Please create a new profile or load an existing one from the sidebar to begin.")
     else:
         active_profile_name = st.session_state.selected_profile
-        p = st.session_state.profiles[active_profile_name]
-        st.markdown(f"### Plan for **{p['name'].title()}** (Profile: *{active_profile_name}*)")
+        user_profile = st.session_state.profiles[active_profile_name]
+        
+        st.markdown(f"### Plan for **{user_profile['name'].title()}** (Profile: *{active_profile_name}*)")
         st.markdown("---")
         
-        # --- Step 1: Detailed Requirements Form ---
-        st.subheader("STEP 1: Tell Us Your Requirements")
-        
-        with st.form("property_details_form"):
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                st.markdown("#### Property Intent")
-                intent_type = st.selectbox("Property Type", ['Build', 'Buy Flat', 'Buy Plot', 'Rent Invest', 'Mixed'])
-                intent_purpose = st.selectbox("Purpose", ['Self Use', 'Rent', 'Resale', 'Joint Invest'])
-                
-                st.markdown("#### Location")
-                loc_city = st.text_input("City", value="Nagpur")
-                loc_locality = st.text_input("Preferred Locality / Area")
-                loc_pincode = st.text_input("Pin Code", max_chars=6)
-                
-                st.markdown("#### Budget and Finance")
-                fin_budget = st.number_input("Total Budget (Rs)", min_value=100000, step=100000, format="%d")
-                fin_loan = st.checkbox("Loan Needed")
-                
-            with c2:
-                st.markdown("#### Property Plan")
-                if intent_type == 'Build' or intent_type == 'Buy Plot':
-                    plan_plot_area = st.number_input("Plot Area (sq. ft)", min_value=300, value=1200)
-                if intent_type == 'Build':
-                    plan_built_up = st.number_input("Built-up Area (sq. ft)", min_value=200, value=1000)
-                if intent_type == 'Buy Flat':
-                    plan_flat_size = st.selectbox("Flat Size", ['1BHK', '2BHK', '3BHK', '4BHK+', 'Custom'])
-
-                st.markdown("#### Optional Extras")
-                opt_parking = st.checkbox("Parking Needed")
-                opt_design = st.selectbox("Preferred Design Style", ['No Preference', 'Modern', 'Traditional', 'Eco-friendly', 'Minimalist'])
-                opt_quality = st.selectbox("Material Quality", ['Basic', 'Standard', 'Premium'])
-            
-            if intent_type == 'Build':
-                st.markdown("---")
-                st.markdown("#### Construction Details (for 'Build' only)")
-                c3, c4 = st.columns(2)
-                with c3:
-                    const_contract = st.selectbox("Contract Type", ['With Material', 'Without Material'])
-                    const_vendors = st.multiselect("Vendors Needed", ['Plumbing', 'Electrical', 'Tiles', 'Paint', 'Solar', 'Interiors', 'CCTV', 'Automation', 'Landscaping'])
-                with c4:
-                    const_green = st.multiselect("Green Features", ['Solar Panels', 'Rainwater Harvesting', 'Heat Insulation', 'EV Charging Point', 'Greywater Recycling'])
-                    const_timeline = st.slider("Build Timeline (Months)", 3, 36, 12)
-            
-            st.markdown("---")
-            st.markdown("#### Risk and Location Quality")
-            c5, c6 = st.columns(2)
-            with c5:
-                risk_flood = st.checkbox("Concerned about Flood Zones?")
-                risk_eco = st.checkbox("Concerned about Eco-sensitive Zones?")
-                risk_dispute = st.checkbox("Concerned about Land Disputes?")
-            with c6:
-                qual_connectivity = st.select_slider("Connectivity Importance", ['Low', 'Medium', 'High'])
-                qual_amenities = st.select_slider("Proximity to Schools/Hospitals", ['Not Important', 'Somewhat', 'Very Important'])
-                qual_group_buy = st.checkbox("Open to Group Buying?")
-
-            st.markdown("---")
-            consent = st.checkbox(f"I, {p['name'].title()}, consent to using this data for analysis.")
-            
-            submitted = st.form_submit_button("Save Requirements and Unlock AI Analysis", use_container_width=True)
-            if submitted:
-                if not consent:
-                    st.error("You must provide consent to proceed.")
-                else:
-                    st.session_state.property_details = {
-                        "intent_type": intent_type, "intent_purpose": intent_purpose,
-                        "loc_city": loc_city, "loc_locality": loc_locality, "loc_pincode": loc_pincode,
-                        "fin_budget": fin_budget, "fin_loan": "Yes" if fin_loan else "No",
-                        "plan_plot_area": locals().get("plan_plot_area"), "plan_built_up": locals().get("plan_built_up"), "plan_flat_size": locals().get("plan_flat_size"),
-                        "opt_parking": "Yes" if opt_parking else "No", "opt_design": opt_design, "opt_quality": opt_quality,
-                        "const_contract": locals().get("const_contract"), "const_vendors": locals().get("const_vendors", []), "const_green": locals().get("const_green", []), "const_timeline": locals().get("const_timeline"),
-                        "risk_flood": "Yes" if risk_flood else "No", "risk_eco": "Yes" if risk_eco else "No", "risk_dispute": "Yes" if risk_dispute else "No",
-                        "qual_connectivity": qual_connectivity, "qual_amenities": qual_amenities, "qual_group_buy": "Yes" if qual_group_buy else "No"
-                    }
-                    st.session_state.details_submitted = True
-                    st.success("Requirements saved! You can now generate your personalized strategy below.")
-                    st.rerun()
-
-        # --- Step 2: AI Plan Generation ---
-        st.markdown("---")
-        st.subheader("STEP 2: Generate Your AI-Powered Strategy")
-        
-        if st.button("Generate My Real Estate Strategy", type="primary", use_container_width=True, disabled=not st.session_state.details_submitted):
-            user_profile = p
-            prop_details = st.session_state.property_details
-            
-            prompt = textwrap.dedent(f"""
-                Act as a friendly, expert real estate advisor in India for a client named {user_profile['name']}.
-
-                CLIENT'S BASE PROFILE:
-                - Age: {calculate_age(user_profile['dob'])} years
-                - Annual Income: Rs {user_profile['income']:,}
-                - Contact: {user_profile['contact']}
-
-                DETAILED PROPERTY REQUIREMENTS:
-                
-                Intent and Location:
-                - Goal: {prop_details['intent_type']} a property for the purpose of {prop_details['intent_purpose']}.
-                - Location: {prop_details['loc_locality']}, {prop_details['loc_city']} ({prop_details['loc_pincode']})
-
-                Financials:
-                - Total Budget: Rs {prop_details['fin_budget']:,}
-                - Needs Loan: {prop_details['fin_loan']}
-
-                Property Plan:
-                - Type Specifics:
-                  {'Plot Area: ' + str(prop_details['plan_plot_area']) + ' sq. ft' if prop_details.get('plan_plot_area') else ''}
-                  {'Built-up Area: ' + str(prop_details['plan_built_up']) + ' sq. ft' if prop_details.get('plan_built_up') else ''}
-                  {'Flat Size: ' + str(prop_details['plan_flat_size']) if prop_details.get('plan_flat_size') else ''}
-                - Preferences: Parking: {prop_details['opt_parking']}, Design: {prop_details['opt_design']}, Material Quality: {prop_details['opt_quality']}
-
-                Risk and Quality Factors:
-                - Concerns: Flood Zone ({prop_details['risk_flood']}), Eco-sensitive Zone ({prop_details['risk_eco']}), Land Disputes ({prop_details['risk_dispute']})
-                - Priorities: Connectivity is of {prop_details['qual_connectivity']} importance. Proximity to amenities is {prop_details['qual_amenities']}.
-                - Group Buying: Client is {'open' if prop_details['qual_group_buy'] == 'Yes' else 'not open'} to group buying.
-                
-                Construction Details (if applicable):
-                {'Contract Type: ' + str(prop_details.get('const_contract')) if prop_details.get('const_contract') else ''}
-                {'Timeline: ' + str(prop_details.get('const_timeline')) + ' months' if prop_details.get('const_timeline') else ''}
-                {'Vendors Needed: ' + ', '.join(prop_details.get('const_vendors', [])) if prop_details.get('const_vendors') else ''}
-                {'Green Features Desired: ' + ', '.join(prop_details.get('const_green', [])) if prop_details.get('const_green') else ''}
-
-                MARKET DATA CONTEXT for {prop_details['loc_city']}:
-                {get_price_data(prop_details['loc_city']).to_markdown()}
-
-                ---
-                YOUR TASK: Generate a comprehensive and highly personalized report in Markdown.
-                1. ### Executive Summary: Give a direct recommendation (e.g., "Proceed with Buying a 2BHK Flat," "Re-evaluate Budget for Building," "Focus on Plot Investment"). Justify based on the client's detailed requirements vs. their budget and market data.
-                2. ### Strategy Deep Dive: Elaborate on the recommendation. If 'Buy', suggest specific configurations. If 'Build', discuss material and contract choices. If 'Invest', suggest potential ROI. Address their specific risk concerns (flood, eco-zones) and how to mitigate them.
-                3. ### Financial Analysis: Provide a realistic breakdown. Is their budget feasible for their plan in {prop_details['loc_city']}? Estimate loan eligibility based on their income. Project a down payment and potential EMI.
-                4. ### Action Plan: Create a checklist of the immediate next 5 steps for {user_profile['name']}, directly tied to their plan. (e.g., 'Verify {prop_details['loc_locality']} for flood plain maps', 'Get pre-approved loan amount', 'Contact 3 architects for quotes').
-            """)
-            
-            with st.spinner("Analyzing your detailed requirements and crafting a custom strategy..."):
-                response = ask_gemini(prompt)
-            st.markdown(response)
-            
-        elif not st.session_state.details_submitted:
-            st.warning("Please fill out and save your requirements in Step 1 to enable this button.")
+        # --- Multi-Step UI Controller ---
+        if st.session_state.step == 1:
+            display_step1_intent_form()
+        elif st.session_state.step == 2:
+            display_step2_details_form()
+        elif st.session_state.step == 3:
+            display_step3_analysis_section(user_profile, st.session_state.property_details)
 
 if __name__ == "__main__":
     main()
